@@ -178,6 +178,8 @@ def health():
 
 
 if __name__ == "__main__":
+    import os
+    port = int(os.environ.get("PORT", 5001))
     print(f"🤖 虚拟主播 [{settings['name']}] 服务启动中...")
     print(f"📁 音频输出目录: {AUDIO_DIR}")
     print(f"🔊 使用语音: {settings['voice']}")
@@ -187,4 +189,4 @@ if __name__ == "__main__":
     print("  POST /api/tts     - 文字转语音")
     print("  GET  /api/status  - 查看状态")
     
-    app.run(host="0.0.0.0", port=5001, debug=True)
+    app.run(host="0.0.0.0", port=port, debug=False)
