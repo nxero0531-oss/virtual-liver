@@ -1,0 +1,16 @@
+{
+    "name": "小悠",
+    "voice": "zh-CN-XiaoxiaoNeural",
+    "style": "affectionate",
+    "rate": "+10%",
+    "pitch": "+5Hz",
+    "tts_output_dir": "./assets/audio",
+    "max_response_length": 50,
+    "welcome_new_viewer": true,
+    "auto_greeting_interval": 300,
+    "greeting_messages": [
+        "大家下午好呀~来看小悠直播的都是小可爱！",
+        "有新来的朋友吗？关注主播不迷路哦~",
+        "今天直播氛围好好，大家都在吗？"
+    ]
+}
