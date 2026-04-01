@@ -10,9 +10,9 @@ import json
 import random
 import time
 import asyncio
+import traceback
 from pathlib import Path
 
-import edge_tts
 from flask import Flask, request, jsonify, send_from_directory
 
 app = Flask(__name__, static_folder='../', static_url_path='')
@@ -40,22 +40,32 @@ class VirtualLiver:
         self.viewers = set()
         self.last_greeting_time = time.time()
         self.is_live = False
+        self.tts_available = True
         
     async def generate_tts(self, text: str) -> str:
         """将文字转为语音"""
-        timestamp = int(time.time() * 1000)
-        filename = f"response_{timestamp}.mp3"
-        filepath = AUDIO_DIR / filename
-        
-        communicate = edge_tts.Communicate(
-            text,
-            voice=settings["voice"],
-            rate=settings["rate"],
-            pitch=settings["pitch"]
-        )
-        await communicate.save(str(filepath))
-        
-        return str(filepath)
+        if not self.tts_available:
+            return None
+            
+        try:
+            import edge_tts
+            timestamp = int(time.time() * 1000)
+            filename = f"response_{timestamp}.mp3"
+            filepath = AUDIO_DIR / filename
+            
+            communicate = edge_tts.Communicate(
+                text,
+                voice=settings["voice"],
+                rate=settings["rate"],
+                pitch=settings["pitch"]
+            )
+            await communicate.save(str(filepath))
+            
+            return str(filepath)
+        except Exception as e:
+            print(f"⚠️ TTS 生成失败: {e}")
+            self.tts_available = False
+            return None
     
     def generate_response(self, danmu: str, username: str) -> str:
         """生成回复"""
@@ -136,30 +146,61 @@ def run_async(coro):
 @app.route("/api/danmu", methods=["POST"])
 def receive_danmu():
     """接收弹幕"""
-    data = request.json
-    result = run_async(liver.process_danmu_async(data))
-    return jsonify({"success": True, "data": result})
+    try:
+        data = request.json
+        result = run_async(liver.process_danmu_async(data))
+        return jsonify({"success": True, "data": result})
+    except Exception as e:
+        print(f"❌ 处理弹幕失败: {e}")
+        traceback.print_exc()
+        return jsonify({
+            "success": False, 
+            "error": str(e),
+            "data": {
+                "text": liver.generate_response(
+                    data.get("content", "") if data else "",
+                    data.get("username", "观众") if data else "观众"
+                ),
+                "audio": None,
+                "user": data.get("username", "观众") if data else "观众"
+            }
+        }), 200
 
 
 @app.route("/api/welcome", methods=["POST"])
 def welcome():
     """欢迎观众"""
-    data = request.json
-    username = data.get("username", "新朋友")
-    result = run_async(liver.welcome_async(username))
-    return jsonify({"success": True, "data": result})
+    try:
+        data = request.json
+        username = data.get("username", "新朋友") if data else "新朋友"
+        result = run_async(liver.welcome_async(username))
+        return jsonify({"success": True, "data": result})
+    except Exception as e:
+        print(f"❌ 欢迎失败: {e}")
+        return jsonify({
+            "success": True,
+            "data": {
+                "text": f"欢迎 @{data.get('username', '新朋友')} 进入直播间~",
+                "audio": None,
+                "user": data.get("username", "新朋友") if data else "新朋友"
+            }
+        }), 200
 
 
 @app.route("/api/tts", methods=["POST"])
 def tts():
     """文字转语音"""
-    data = request.json
-    text = data.get("text", "")
-    if not text:
-        return jsonify({"success": False, "error": "文字不能为空"})
-    
-    result = run_async(liver.generate_tts(text))
-    return jsonify({"success": True, "audio": result})
+    try:
+        data = request.json
+        text = data.get("text", "")
+        if not text:
+            return jsonify({"success": False, "error": "文字不能为空"})
+        
+        result = run_async(liver.generate_tts(text))
+        return jsonify({"success": True, "audio": result})
+    except Exception as e:
+        print(f"❌ TTS 失败: {e}")
+        return jsonify({"success": False, "error": str(e), "audio": None})
 
 
 @app.route("/api/status", methods=["GET"])
@@ -168,7 +209,8 @@ def status():
     return jsonify({
         "status": "running",
         "is_live": liver.is_live,
-        "name": settings["name"]
+        "name": settings["name"],
+        "tts_available": liver.tts_available
     })
 
 
