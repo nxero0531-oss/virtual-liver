@@ -13,9 +13,9 @@ import asyncio
 from pathlib import Path
 
 import edge_tts
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='../', static_url_path='')
 
 # 配置路径
 BASE_DIR = Path(__file__).parent.parent
@@ -175,6 +175,18 @@ def status():
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
+
+
+@app.route("/", methods=["GET"])
+def index():
+    """前端界面"""
+    return send_from_directory(BASE_DIR, "frontend.html")
+
+
+@app.route("/assets/audio/<path:filename>", methods=["GET"])
+def serve_audio(filename):
+    """提供音频文件"""
+    return send_from_directory(AUDIO_DIR, filename)
 
 
 if __name__ == "__main__":
