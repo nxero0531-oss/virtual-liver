@@ -1,7 +1,7 @@
 """
 虚拟主播后端服务
 - 接收弹幕
-- AI对话处理
+- AI对话处理（使用智能体）
 - TTS语音合成
 - WebSocket实时通信
 """
@@ -14,6 +14,11 @@ import traceback
 from pathlib import Path
 
 from flask import Flask, request, jsonify, send_from_directory
+
+# 导入智能体
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from agent import get_agent
 
 app = Flask(__name__, static_folder='../', static_url_path='')
 
@@ -35,24 +40,26 @@ with open(CONFIG_DIR / "persona.md", "r", encoding="utf-8") as f:
 
 class VirtualLiver:
     """虚拟主播核心类"""
-    
+
     def __init__(self):
         self.viewers = set()
         self.last_greeting_time = time.time()
         self.is_live = False
         self.tts_available = True
-        
+        # 初始化智能体
+        self.agent = get_agent()
+
     async def generate_tts(self, text: str) -> str:
         """将文字转为语音"""
         if not self.tts_available:
             return None
-            
+
         try:
             import edge_tts
             timestamp = int(time.time() * 1000)
             filename = f"response_{timestamp}.mp3"
             filepath = AUDIO_DIR / filename
-            
+
             communicate = edge_tts.Communicate(
                 text,
                 voice=settings["voice"],
@@ -60,51 +67,21 @@ class VirtualLiver:
                 pitch=settings["pitch"]
             )
             await communicate.save(str(filepath))
-            
+
             return str(filepath)
         except Exception as e:
             print(f"⚠️ TTS 生成失败: {e}")
             self.tts_available = False
             return None
-    
+
     def generate_response(self, danmu: str, username: str) -> str:
-        """生成回复"""
-        danmu_lower = danmu.lower().strip()
-        
-        # 打招呼
-        if any(k in danmu_lower for k in ["你好", "hello", "hi", "大家好"]):
-            return f"你好呀~@{username}！欢迎来看小悠直播~"
-        
-        # 问名字
-        if "名字" in danmu or "叫什么" in danmu:
-            return f"我叫{settings['name']}呀~有什么事吗？"
-        
-        # 问年龄
-        if "年龄" in danmu or "几岁" in danmu:
-            return "22岁~永远18！哈哈哈"
-        
-        # 夸赞
-        if any(k in danmu for k in ["可爱", "好看", "漂亮", "厉害", "牛"]):
-            return "谢谢夸奖~你也很棒的说！❤️"
-        
-        # 问游戏
-        if "游戏" in danmu or "玩什么" in danmu:
-            return "今天想玩点轻松的~大家想看什么？"
-        
-        # 问问题
-        if "?" in danmu or "？" in danmu:
-            return "这个问题问得好~让小悠想想..."
-        
-        # 默认回复
-        responses = [
-            "嗯嗯~说得对！",
-            "哈哈哈好好玩~",
-            "对对对，就是这样！",
-            f"@{username} 说得不错嘛~",
-            "小悠觉得可以！",
-            "有道理！"
-        ]
-        return random.choice(responses)
+        """使用智能体生成回复"""
+        try:
+            return self.agent.generate_response(username, danmu)
+        except Exception as e:
+            print(f"⚠️ 智能体生成回复失败: {e}")
+            # 回退到简单回复
+            return f"@{username} 说得对！"
     
     async def process_danmu_async(self, danmu_data: dict) -> dict:
         """处理弹幕（异步）"""
@@ -217,6 +194,20 @@ def status():
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
+
+
+@app.route("/api/reset", methods=["POST"])
+def reset_memory():
+    """重置智能体记忆"""
+    liver.agent.memory.clear()
+    return jsonify({"success": True, "message": "记忆已重置"})
+
+
+@app.route("/api/history", methods=["GET"])
+def get_history():
+    """获取对话历史"""
+    context = liver.agent.memory.get_context()
+    return jsonify({"success": True, "history": context})
 
 
 @app.route("/", methods=["GET"])
