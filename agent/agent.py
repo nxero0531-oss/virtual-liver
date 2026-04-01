@@ -1,9 +1,11 @@
 """
 虚拟主播智能体 - 小悠
+集成 DeepSeek 大语言模型
 """
 
 import json
 import os
+import time
 from datetime import datetime
 from typing import List, Dict, Optional
 
@@ -12,6 +14,11 @@ MEMORY_FILE = os.path.join(os.path.dirname(__file__), "memory.json")
 
 # 最多保留的对话历史
 MAX_HISTORY = 20
+
+# DeepSeek API 配置
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
+DEEPSEEK_MODEL = "deepseek-chat"
 
 
 class ChatMemory:
@@ -129,30 +136,69 @@ class VirtualStreamerAgent:
         # 构建提示词
         context = self.memory.get_context()
 
-        prompt = f"""【小悠的人设】
-{self.persona}
+        # 构建对话历史（用于 API）
+        messages = [
+            {"role": "system", "content": self.persona}
+        ]
 
-【最近的对话】
-{context}
+        # 添加上下文历史
+        if context:
+            for item in self.memory.history[-10:]:
+                role = "user" if item["role"] == "user" else "assistant"
+                content_item = item["content"]
+                if item.get("username"):
+                    content_item = f"@{item['username']}：{content_item}"
+                messages.append({"role": role, "content": content_item})
 
-【当前情况】
-观众 "{username}" 发送了弹幕："{content}"
+        # 添加当前弹幕
+        messages.append({
+            "role": "user",
+            "content": f'观众 "{username}" 发送了弹幕："{content}"\n\n请以"小悠"的身份回复，简短自然，1-2句话，适合直播间朗读。'
+        })
 
-【回复要求】
-1. 以"小悠"的身份回复
-2. 简短自然，1-3句话
-3. 直接输出回复内容，不要加引号或格式
+        # 尝试调用 DeepSeek API
+        if DEEPSEEK_API_KEY:
+            response = self._call_deepseek_api(messages)
+            if response:
+                self.memory.add("assistant", response)
+                return response
 
-请回复："""
-
-        # 注意：这里需要调用大语言模型
-        # 暂时返回模拟回复，等用户配置 API Key
+        # 回退到模拟回复
         response = self._generate_mock_response(username, content, context)
-
-        # 保存回复
         self.memory.add("assistant", response)
-
         return response
+
+    def _call_deepseek_api(self, messages: List[Dict]) -> Optional[str]:
+        """调用 DeepSeek API"""
+        try:
+            import urllib.request
+            import urllib.error
+
+            data = json.dumps({
+                "model": DEEPSEEK_MODEL,
+                "messages": messages,
+                "max_tokens": 100,
+                "temperature": 0.8,
+                "stream": False
+            }).encode("utf-8")
+
+            req = urllib.request.Request(
+                DEEPSEEK_API_URL,
+                data=data,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
+                },
+                method="POST"
+            )
+
+            with urllib.request.urlopen(req, timeout=10) as response:
+                result = json.loads(response.read().decode("utf-8"))
+                return result["choices"][0]["message"]["content"].strip()
+
+        except Exception as e:
+            print(f"⚠️ DeepSeek API 调用失败: {e}")
+            return None
 
     def _generate_mock_response(self, username: str, content: str, context: str) -> str:
         """
